@@ -1,4 +1,4 @@
-# 🤖 ResearchMind AI
+# ResearchMind AI
 
 An AI research agent that takes a topic (or question) and autonomously
 plans, searches the web, and writes a structured, cited report — no
@@ -8,27 +8,27 @@ manual research required.
 
 ```
 User Query
-   ↓
-Planner        → LLM breaks the topic into focused sub-questions
-   ↓
-Web Search     → Tavily API searches the web for each sub-question
-   ↓
-Extractor      → cleans results into a citable evidence bundle
-   ↓
-Synthesizer    → LLM writes a structured report with inline [S1][S2] citations
-   ↓
-Fact-Checker   → LLM reviews its own report against the evidence
-   ↓
+   |
+Planner        -> LLM breaks the topic into focused sub-questions
+   |
+Web Search     -> Tavily API searches the web for each sub-question
+   |
+Extractor      -> cleans results into a citable evidence bundle
+   |
+Synthesizer    -> LLM writes a structured report with inline [S1][S2] citations
+   |
+Fact-Checker   -> LLM reviews its own report against the evidence
+   |
 Report + Sources + PDF export
 ```
 
 ## Features (Phase 1)
 
-- 🔎 Multi-step research agent (query decomposition, not a single search call)
-- 📚 Automatic source citation, deduplicated across sub-questions
-- ✅ Self fact-checking pass
-- 📄 One-click PDF export of the final report
-- 🎨 Streamlit dashboard with live pipeline status
+- Multi-step research agent (query decomposition, not a single search call)
+- Automatic source citation, deduplicated across sub-questions
+- Self fact-checking pass
+- One-click PDF export with full Unicode support and rendered tables
+- Minimal, chat-style Streamlit interface
 
 ## Roadmap
 
@@ -39,7 +39,7 @@ Report + Sources + PDF export
 
 ## Tech Stack
 
-Python · Groq (Llama 3.3 70B) · Tavily Search API · Streamlit · fpdf2
+Python, Groq (LLM inference), Tavily Search API, Streamlit, fpdf2
 
 ## Setup
 
