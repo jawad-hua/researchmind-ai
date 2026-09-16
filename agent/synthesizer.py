@@ -33,19 +33,25 @@ def build_report(topic: str, evidence_bundles: list[dict]) -> dict:
             "sources": list[dict]  # deduplicated, renumbered globally
         }
     """
-    # Merge evidence text from all sub-questions, with globally unique IDs
+    # Merge evidence text from all sub-questions, with globally unique IDs.
+    # Dedup key: URL for web results (same URL = same page). Uploaded
+    # documents have no URL (it's always ""), so if we deduped on URL
+    # alone every uploaded document would collide into a single source —
+    # the first one seen would silently swallow every other document.
+    # Fall back to the title (which contains the filename) for those.
     all_sources = []
     combined_evidence = []
-    seen_urls = {}
+    seen_keys = {}
 
     for bundle in evidence_bundles:
         section_lines = [f"### Sub-question: {bundle['subquestion']}"]
         for source in bundle["sources"]:
-            if source["url"] in seen_urls:
-                global_id = seen_urls[source["url"]]
+            dedup_key = source["url"] or source["title"]
+            if dedup_key in seen_keys:
+                global_id = seen_keys[dedup_key]
             else:
                 global_id = f"S{len(all_sources) + 1}"
-                seen_urls[source["url"]] = global_id
+                seen_keys[dedup_key] = global_id
                 all_sources.append({
                     "id": global_id,
                     "title": source["title"],
@@ -54,7 +60,8 @@ def build_report(topic: str, evidence_bundles: list[dict]) -> dict:
         # Re-tag evidence text with global IDs for this bundle
         evidence_text = bundle["evidence_text"]
         for local_source in bundle["sources"]:
-            global_id = seen_urls[local_source["url"]]
+            dedup_key = local_source["url"] or local_source["title"]
+            global_id = seen_keys[dedup_key]
             evidence_text = evidence_text.replace(
                 f"[{local_source['id']}]", f"[{global_id}]"
             )
@@ -91,6 +98,11 @@ def append_sources_section(report_markdown: str, sources: list[dict]) -> str:
 
     lines = ["\n\n## Sources\n"]
     for s in sources:
-        lines.append(f"- [{s['id']}] [{s['title']}]({s['url']})")
+        if s["url"]:
+            lines.append(f"- [{s['id']}] [{s['title']}]({s['url']})")
+        else:
+            # Uploaded documents have no URL — show the title plainly,
+            # not as a dead markdown link.
+            lines.append(f"- [{s['id']}] {s['title']}")
 
     return report_markdown + "\n".join(lines)

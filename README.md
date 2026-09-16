@@ -22,24 +22,26 @@ Fact-Checker   -> LLM reviews its own report against the evidence
 Report + Sources + PDF export
 ```
 
-## Features (Phase 1)
+## Features
 
 - Multi-step research agent (query decomposition, not a single search call)
-- Automatic source citation, deduplicated across sub-questions
+- Retrieval-augmented research: upload PDFs and the agent researches from
+  them alongside the live web, in the same cited report
+- Automatic source citation, deduplicated across sub-questions and documents
 - Self fact-checking pass
 - One-click PDF export with full Unicode support and rendered tables
-- Minimal, chat-style Streamlit interface
+- Minimal, chat-style Streamlit interface, adapts to system light/dark theme
 
 ## Roadmap
 
-- **Phase 2:** PDF/document upload + RAG (vector DB) so the agent can
-  research from user-provided documents alongside the web
 - **Phase 3:** FastAPI backend, Docker deployment, streaming responses,
   conversation memory
+- **Phase 4:** persistent (disk-backed) vector store, smarter chunking
 
 ## Tech Stack
 
-Python, Groq (LLM inference), Tavily Search API, Streamlit, fpdf2
+Python, Groq (LLM inference), Tavily Search API, ChromaDB (vector store),
+Streamlit, pypdf, fpdf2
 
 ## Setup
 
