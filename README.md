@@ -2,25 +2,25 @@
 
 An AI research agent that takes a topic (or question) and autonomously
 plans, searches the web, and writes a structured, cited report — no
-manual research required.
+manual research required. Upload PDFs and it researches from them
+alongside the live web, in the same cited report.
 
-## How it works
+## Architecture
 
 ```
-User Query
-   |
-Planner        -> LLM breaks the topic into focused sub-questions
-   |
-Web Search     -> Tavily API searches the web for each sub-question
-   |
-Extractor      -> cleans results into a citable evidence bundle
-   |
-Synthesizer    -> LLM writes a structured report with inline [S1][S2] citations
-   |
-Fact-Checker   -> LLM reviews its own report against the evidence
-   |
-Report + Sources + PDF export
+Streamlit Frontend (UI)  --HTTP-->  FastAPI Backend (API)
+                                            |
+                                    Planner -> Web Search + Document
+                                    Retrieval (ChromaDB) -> Synthesizer
+                                    -> Fact-Checker -> Report
+                                            |
+                                    Groq (LLM) + Tavily (Search)
 ```
+
+The frontend is a pure UI layer with no research logic of its own —
+every step of the pipeline runs in the backend API. This means the
+backend could serve a mobile app, a CLI, or another frontend without
+any changes to the agent code.
 
 ## Features
 
@@ -31,19 +31,23 @@ Report + Sources + PDF export
 - Self fact-checking pass
 - One-click PDF export with full Unicode support and rendered tables
 - Minimal, chat-style Streamlit interface, adapts to system light/dark theme
+- FastAPI backend with a documented REST API (`/docs` for interactive Swagger UI)
+- Dockerized: backend and frontend run as separate containers via Docker Compose
 
 ## Roadmap
 
-- **Phase 3:** FastAPI backend, Docker deployment, streaming responses,
-  conversation memory
-- **Phase 4:** persistent (disk-backed) vector store, smarter chunking
+- Streaming responses (token-by-token report generation)
+- Persistent (disk-backed) vector store, smarter chunking
+- Conversation memory across research sessions
 
 ## Tech Stack
 
-Python, Groq (LLM inference), Tavily Search API, ChromaDB (vector store),
-Streamlit, pypdf, fpdf2
+Python, FastAPI, Groq (LLM inference), Tavily Search API, ChromaDB
+(vector store), Streamlit, pypdf, fpdf2, Docker
 
-## Setup
+## Running locally (without Docker)
+
+Needs two terminals — one for the backend, one for the frontend.
 
 ```bash
 git clone <your-repo-url>
@@ -52,12 +56,42 @@ python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env      # then fill in your API keys
+```
+
+Terminal 1 — backend:
+```bash
+uvicorn backend.main:app --reload --port 8000
+```
+
+Terminal 2 — frontend:
+```bash
 streamlit run app.py
 ```
 
 Get free API keys:
 - Groq: https://console.groq.com
 - Tavily: https://tavily.com
+
+## Running with Docker
+
+```bash
+cp .env.example .env      # fill in GROQ_API_KEY and TAVILY_API_KEY
+docker compose up --build
+```
+
+- Frontend: http://localhost:8501
+- Backend API docs (Swagger UI): http://localhost:8000/docs
+
+## API Overview
+
+- `POST /sessions` — start a research session, returns a `session_id`
+- `POST /sessions/{id}/documents` — upload PDF(s) to research alongside the web
+- `GET /sessions/{id}/documents` — list documents indexed in this session
+- `DELETE /sessions/{id}/documents/{source_key}` — remove an indexed document
+- `POST /sessions/{id}/research` — run the full pipeline, returns the cited report
+- `GET /health` — service + API key status
+
+Full interactive documentation is auto-generated at `/docs` when the backend is running.
 
 ## Example
 

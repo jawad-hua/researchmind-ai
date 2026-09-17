@@ -1,24 +1,31 @@
 """
-Fact Checker — optional pass that asks the LLM to re-examine its own
-report against the evidence and flag anything unsupported.
-
-Phase 1 keeps this simple: a single self-review pass, not a separate
-verification pipeline. Good enough to demonstrate the concept; can be
-made more rigorous (e.g. claim-by-claim source matching) in Phase 3.
+Fact Checker — a pass that asks the LLM to re-examine its own report
+against the evidence, checking both factual support and citation
+accuracy (does [Sn] actually point to the source it claims to).
 """
 
 from utils.llm_client import chat
 
 FACT_CHECK_SYSTEM_PROMPT = """You are a strict fact-checking reviewer.
-You will be given a research report and the evidence it was based on.
+You will be given a research report and the evidence it was based on
+(the evidence includes a source index mapping each ID like S1, S2 to
+what it actually is).
 
-Check each major claim in the report:
-- Is it actually supported by the cited evidence?
-- Are there unsupported or overreaching claims?
+Check two separate things for each major claim in the report:
+1. Factual support — is the claim actually backed by the evidence, or
+   is it unsupported / overreaching?
+2. Citation accuracy — for each [Sn] the report cites, look up what Sn
+   actually is in the source index. Does that source really describe
+   the claim it's attached to? A citation pointing to the wrong source
+   (e.g. citing a web article for a fact that came from an uploaded
+   document, or vice versa) is a citation error, separate from a
+   factual one — call it out explicitly as "citation mismatch" so it's
+   distinguishable from an unsupported claim.
 
 Output a short markdown section titled "## Fact-Check Notes" with:
 - A one-line overall verdict (e.g. "Well-supported" / "Minor issues" / "Contains unsupported claims")
-- A bullet list of any specific concerns (empty list if none)
+- A bullet list of any specific concerns (empty list if none) — prefix
+  each as either "Unsupported claim:" or "Citation mismatch:"
 
 Keep it concise — max 150 words.
 """
@@ -32,7 +39,7 @@ def fact_check_report(report_markdown: str, evidence_blob: str) -> str:
 
 ---
 
-Original evidence it was based on:
+Original evidence and source index it was based on:
 
 {evidence_blob}
 """

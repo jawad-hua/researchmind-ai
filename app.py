@@ -1,26 +1,23 @@
 """
-ResearchMind AI — Phase 1 MVP entrypoint.
+ResearchMind AI — Streamlit frontend.
 
-Pipeline: Query -> Planner -> Web Search -> Extractor -> Synthesizer
-          -> (optional) Fact-Checker -> Report + Sources -> PDF export
-
-UI: a minimal, chat-style interface (native Streamlit chat components)
-with a restrained, neutral visual design — no emoji, no decoration.
+Phase 3: this is now a pure UI layer with no agent logic of its own —
+every piece of work (planning, search, retrieval, synthesis, fact-check,
+PDF export) happens through HTTP calls to the FastAPI backend
+(backend/main.py). This mirrors a real production split between a
+frontend and an API service, and means the backend could be swapped
+for a mobile app, a CLI, or another UI without touching agent code.
 """
 
 import os
 import tempfile
-import uuid
+
+import requests
 import streamlit as st
 
-from agent.planner import plan_subquestions
-from agent.search import search_web
-from agent.extractor import collect_all_evidence
-from agent.synthesizer import build_report, append_sources_section
-from agent.fact_checker import fact_check_report
-from agent.document_loader import extract_text_from_pdf, chunk_text
-from agent.vector_store import DocumentVectorStore
 from utils.pdf_export import markdown_to_pdf
+
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="ResearchMind AI", layout="wide")
 
@@ -156,6 +153,32 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
+def ensure_session():
+    """Create a backend session once per browser session and cache the id."""
+    if "session_id" in st.session_state:
+        return
+    try:
+        r = requests.post(f"{BACKEND_URL}/sessions", timeout=10)
+        r.raise_for_status()
+        st.session_state.session_id = r.json()["session_id"]
+    except requests.exceptions.RequestException as e:
+        st.session_state.session_id = None
+        st.session_state.backend_error = str(e)
+
+
+ensure_session()
+
+if not st.session_state.get("session_id"):
+    st.error(
+        f"Can't reach the backend at {BACKEND_URL}. "
+        f"Make sure it's running (`uvicorn backend.main:app`). "
+        f"Details: {st.session_state.get('backend_error', 'unknown error')}"
+    )
+    st.stop()
+
+session_id = st.session_state.session_id
+
 with st.sidebar:
     st.markdown("**Settings**")
     run_fact_check = st.checkbox("Fact-check pass", value=True)
@@ -169,60 +192,68 @@ with st.sidebar:
         accept_multiple_files=True,
     )
 
-    if "session_id" not in st.session_state:
-        st.session_state.session_id = uuid.uuid4().hex
-    if "vector_store" not in st.session_state:
-        # collection_name is unique per session: Chroma's ephemeral client
-        # shares its backend across instances in the same process, so a
-        # per-session name is what actually keeps users' documents isolated.
-        st.session_state.vector_store = DocumentVectorStore(
-            collection_name=f"session_{st.session_state.session_id}"
-        )
     if "indexed_files" not in st.session_state:
-        st.session_state.indexed_files = {}  # source_key -> display name
+        # local mirror of the backend's session document list:
+        # {(name, size): {"source_key": ..., "name": ...}}
+        st.session_state.indexed_files = {}
 
-    vector_store = st.session_state.vector_store
+    current_keys = {(f.name, f.size): f for f in (uploaded_files or [])}
 
-    # Reconcile the vector store against whatever the uploader currently
-    # shows — this handles adding new files AND the user removing a file
-    # from the widget (its chunks get removed too, so stale content never
-    # keeps influencing retrieval).
-    current_keys = {}
-    for f in (uploaded_files or []):
-        key = f"{f.name}::{f.size}"
-        current_keys[key] = f
+    # A file removed from the widget gets removed on the backend too.
+    removed = [k for k in st.session_state.indexed_files if k not in current_keys]
+    for k in removed:
+        entry = st.session_state.indexed_files[k]
+        try:
+            requests.delete(
+                f"{BACKEND_URL}/sessions/{session_id}/documents/{entry['source_key']}",
+                timeout=10,
+            )
+        except requests.exceptions.RequestException:
+            pass  # best-effort cleanup; stale backend doc is harmless if this fails
+        del st.session_state.indexed_files[k]
 
-    removed_keys = [k for k in st.session_state.indexed_files if k not in current_keys]
-    for key in removed_keys:
-        vector_store.remove_document(key)
-        del st.session_state.indexed_files[key]
-
-    new_keys = [k for k in current_keys if k not in st.session_state.indexed_files]
-    if new_keys:
-        with st.spinner(f"Indexing {len(new_keys)} document(s)..."):
-            for key in new_keys:
-                f = current_keys[key]
-                text = extract_text_from_pdf(f)
-                chunks = chunk_text(text)
-                vector_store.add_document(f.name, chunks, source_key=key)
-                st.session_state.indexed_files[key] = f.name
+    # New files in the widget get uploaded to the backend.
+    new = [k for k in current_keys if k not in st.session_state.indexed_files]
+    if new:
+        with st.spinner(f"Indexing {len(new)} document(s)..."):
+            files_payload = [
+                ("files", (current_keys[k].name, current_keys[k].getvalue(), "application/pdf"))
+                for k in new
+            ]
+            try:
+                r = requests.post(
+                    f"{BACKEND_URL}/sessions/{session_id}/documents",
+                    files=files_payload,
+                    timeout=120,
+                )
+                r.raise_for_status()
+                # Backend returns the full current list; rebuild our local mirror from it.
+                indexed = r.json()["indexed"]
+                st.session_state.indexed_files = {}
+                for k in current_keys:
+                    f = current_keys[k]
+                    match = next((e for e in indexed if e["name"] == f.name), None)
+                    if match:
+                        st.session_state.indexed_files[k] = match
+            except requests.exceptions.RequestException as e:
+                st.error(f"Upload failed: {e}")
 
     if st.session_state.indexed_files:
         st.caption(f"{len(st.session_state.indexed_files)} document(s) indexed:")
-        for name in st.session_state.indexed_files.values():
-            st.caption(f"\u2014 {name}")
+        for entry in st.session_state.indexed_files.values():
+            st.caption(f"\u2014 {entry['name']}")
 
     st.markdown("---")
     with st.expander("How it works"):
         st.markdown(
             "Query, planner, web search plus document retrieval, extractor, "
-            "synthesizer, fact-checker, final report with sources."
+            "synthesizer, fact-checker, final report with sources. "
+            "All of it runs in the backend API; this page is just the UI."
         )
 
 if "messages" not in st.session_state:
-    st.session_state.messages = []  # list of {role, content, pdf_ready?}
+    st.session_state.messages = []
 
-# Render conversation history
 for i, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"], avatar=None):
         st.markdown(msg["content"])
@@ -255,63 +286,45 @@ if topic:
         st.markdown(topic)
 
     with st.chat_message("assistant", avatar=None):
-        if not os.getenv("GROQ_API_KEY"):
-            error_text = "Missing API key. Add GROQ_API_KEY to your .env file."
-            st.markdown(error_text)
-            st.session_state.messages.append({"role": "assistant", "content": error_text})
-            st.stop()
-
         status_box = st.empty()
-
-        status_box.markdown('<span class="status-line">Planning sub-questions...</span>', unsafe_allow_html=True)
-        subquestions = plan_subquestions(
-            topic,
-            uploaded_doc_names=list(st.session_state.indexed_files.values()) or None,
+        status_box.markdown(
+            '<span class="status-line">Researching (planning, searching, writing, fact-checking)...</span>',
+            unsafe_allow_html=True,
         )
 
-        status_box.markdown('<span class="status-line">Searching the web and your documents...</span>', unsafe_allow_html=True)
-
-        def combined_search(q: str):
-            web_results, error = search_web(q, max_results=results_per_subq)
-            doc_results = vector_store.query(q, top_k=3) if vector_store.has_documents() else []
-            return doc_results + web_results, error
-
-        evidence_bundles = collect_all_evidence(subquestions, search_fn=combined_search)
-
-        errors = [b["error"] for b in evidence_bundles if b.get("error")]
-        total_sources = sum(len(b["sources"]) for b in evidence_bundles)
-
-        if total_sources == 0:
+        try:
+            r = requests.post(
+                f"{BACKEND_URL}/sessions/{session_id}/research",
+                json={
+                    "topic": topic,
+                    "results_per_subquestion": results_per_subq,
+                    "run_fact_check": run_fact_check,
+                },
+                timeout=300,
+            )
             status_box.empty()
-            error_text = "No evidence found — no web results and no uploaded documents matched."
-            if errors:
-                error_text += f" Error: {errors[0]}"
+
+            if r.status_code != 200:
+                detail = r.json().get("detail", r.text) if r.headers.get("content-type", "").startswith("application/json") else r.text
+                error_text = f"Research failed: {detail}"
+                st.markdown(error_text)
+                st.session_state.messages.append({"role": "assistant", "content": error_text})
+                st.stop()
+
+            data = r.json()
+            final_report = data["report_markdown"]
+
+            st.markdown(final_report)
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": final_report,
+                "report_markdown": final_report,
+                "topic": topic,
+            })
+            st.rerun()
+
+        except requests.exceptions.RequestException as e:
+            status_box.empty()
+            error_text = f"Can't reach the backend: {e}"
             st.markdown(error_text)
             st.session_state.messages.append({"role": "assistant", "content": error_text})
-            st.stop()
-
-        status_box.markdown('<span class="status-line">Writing the report...</span>', unsafe_allow_html=True)
-        result = build_report(topic, evidence_bundles)
-        report_md = result["report_markdown"]
-        sources = result["sources"]
-
-        fact_check_notes = ""
-        if run_fact_check:
-            status_box.markdown('<span class="status-line">Fact-checking...</span>', unsafe_allow_html=True)
-            evidence_blob = "\n\n".join(b["evidence_text"] for b in evidence_bundles)
-            fact_check_notes = fact_check_report(report_md, evidence_blob)
-
-        status_box.empty()
-
-        final_report = append_sources_section(report_md, sources)
-        if fact_check_notes:
-            final_report += f"\n\n{fact_check_notes}"
-
-        st.markdown(final_report)
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": final_report,
-            "report_markdown": final_report,
-            "topic": topic,
-        })
-        st.rerun()

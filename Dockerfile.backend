@@ -1,0 +1,16 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install backend-only dependencies first so this layer is cached
+# across rebuilds that only change application code.
+COPY requirements-backend.txt .
+RUN pip install --no-cache-dir -r requirements-backend.txt
+
+COPY agent/ ./agent/
+COPY utils/ ./utils/
+COPY backend/ ./backend/
+
+EXPOSE 8000
+
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
