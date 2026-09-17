@@ -28,22 +28,25 @@ any changes to the agent code.
 - Retrieval-augmented research: upload PDFs and the agent researches from
   them alongside the live web, in the same cited report
 - Automatic source citation, deduplicated across sub-questions and documents
-- Self fact-checking pass
+- Self fact-checking pass, including citation-accuracy checks
+- Streaming responses: the report renders token-by-token as it's generated
 - One-click PDF export with full Unicode support and rendered tables
 - Minimal, chat-style Streamlit interface, adapts to system light/dark theme
 - FastAPI backend with a documented REST API (`/docs` for interactive Swagger UI)
 - Dockerized: backend and frontend run as separate containers via Docker Compose
+- Automated test suite (pytest) covering the agent pipeline, vector store,
+  and every backend endpoint, run automatically in CI on every push (GitHub Actions)
 
 ## Roadmap
 
-- Streaming responses (token-by-token report generation)
 - Persistent (disk-backed) vector store, smarter chunking
 - Conversation memory across research sessions
+- Structured logging and centralized config
 
 ## Tech Stack
 
 Python, FastAPI, Groq (LLM inference), Tavily Search API, ChromaDB
-(vector store), Streamlit, pypdf, fpdf2, Docker
+(vector store), Streamlit, pypdf, fpdf2, Docker, pytest, GitHub Actions
 
 ## Running locally (without Docker)
 
@@ -89,9 +92,22 @@ docker compose up --build
 - `GET /sessions/{id}/documents` — list documents indexed in this session
 - `DELETE /sessions/{id}/documents/{source_key}` — remove an indexed document
 - `POST /sessions/{id}/research` — run the full pipeline, returns the cited report
+- `POST /sessions/{id}/research/stream` — same pipeline, streamed as Server-Sent Events
+  (`status`, `token`, `done`, `error`)
 - `GET /health` — service + API key status
 
 Full interactive documentation is auto-generated at `/docs` when the backend is running.
+
+## Running the tests
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+pytest -v
+```
+
+The suite mocks every LLM call, web search, and the embedding model, so it
+runs fully offline in a couple of seconds. It also runs automatically on
+every push via GitHub Actions (see `.github/workflows/tests.yml`).
 
 ## Example
 

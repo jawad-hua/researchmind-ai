@@ -9,6 +9,7 @@ frontend and an API service, and means the backend could be swapped
 for a mobile app, a CLI, or another UI without touching agent code.
 """
 
+import json
 import os
 import tempfile
 
@@ -287,34 +288,60 @@ if topic:
 
     with st.chat_message("assistant", avatar=None):
         status_box = st.empty()
-        status_box.markdown(
-            '<span class="status-line">Researching (planning, searching, writing, fact-checking)...</span>',
-            unsafe_allow_html=True,
-        )
+        report_box = st.empty()
+        accumulated_text = ""
+        final_report = None
+        error_text = None
 
         try:
-            r = requests.post(
-                f"{BACKEND_URL}/sessions/{session_id}/research",
+            with requests.post(
+                f"{BACKEND_URL}/sessions/{session_id}/research/stream",
                 json={
                     "topic": topic,
                     "results_per_subquestion": results_per_subq,
                     "run_fact_check": run_fact_check,
                 },
+                stream=True,
                 timeout=300,
-            )
+            ) as resp:
+                resp.raise_for_status()
+                event_type = None
+
+                for line in resp.iter_lines(decode_unicode=True):
+                    if line is None or line == "":
+                        continue
+                    if line.startswith("event: "):
+                        event_type = line[len("event: "):]
+                        continue
+                    if not line.startswith("data: "):
+                        continue
+
+                    payload = json.loads(line[len("data: "):])
+
+                    if event_type == "status":
+                        status_box.markdown(
+                            f'<span class="status-line">{payload}</span>',
+                            unsafe_allow_html=True,
+                        )
+                    elif event_type == "token":
+                        status_box.empty()
+                        accumulated_text += payload
+                        report_box.markdown(accumulated_text)
+                    elif event_type == "done":
+                        status_box.empty()
+                        final_report = payload["report_markdown"]
+                        report_box.markdown(final_report)
+                    elif event_type == "error":
+                        status_box.empty()
+                        error_text = f"Research failed: {payload}"
+                        report_box.markdown(error_text)
+
+        except requests.exceptions.RequestException as e:
             status_box.empty()
+            error_text = f"Can't reach the backend: {e}"
+            report_box.markdown(error_text)
 
-            if r.status_code != 200:
-                detail = r.json().get("detail", r.text) if r.headers.get("content-type", "").startswith("application/json") else r.text
-                error_text = f"Research failed: {detail}"
-                st.markdown(error_text)
-                st.session_state.messages.append({"role": "assistant", "content": error_text})
-                st.stop()
-
-            data = r.json()
-            final_report = data["report_markdown"]
-
-            st.markdown(final_report)
+        if final_report:
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": final_report,
@@ -322,9 +349,5 @@ if topic:
                 "topic": topic,
             })
             st.rerun()
-
-        except requests.exceptions.RequestException as e:
-            status_box.empty()
-            error_text = f"Can't reach the backend: {e}"
-            st.markdown(error_text)
+        elif error_text:
             st.session_state.messages.append({"role": "assistant", "content": error_text})

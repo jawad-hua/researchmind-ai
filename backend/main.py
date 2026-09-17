@@ -15,17 +15,25 @@ database if this ever needs to survive a server restart or run behind
 multiple backend replicas.
 """
 
+import json
 import os
 import uuid
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from agent.planner import plan_subquestions
 from agent.search import search_web
 from agent.extractor import collect_all_evidence
-from agent.synthesizer import build_report, append_sources_section
+from agent.synthesizer import (
+    build_report,
+    append_sources_section,
+    prepare_synthesis,
+    synthesize_stream,
+    normalize_citation_brackets,
+)
 from agent.fact_checker import fact_check_report
 from agent.document_loader import extract_text_from_pdf, chunk_text
 from agent.vector_store import DocumentVectorStore
@@ -199,3 +207,78 @@ def research(session_id: str, req: ResearchRequest):
         subquestions=subquestions,
         source_count=cited_count,
     )
+
+
+def _sse(event: str, data) -> str:
+    """Format one Server-Sent Event. The payload is always JSON-encoded
+    (even plain strings) so embedded newlines — e.g. inside a streamed
+    report chunk — can't break the one-line 'data: ...' framing SSE
+    requires."""
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+@app.post("/sessions/{session_id}/research/stream")
+def research_stream(session_id: str, req: ResearchRequest):
+    """
+    Same pipeline as POST /research, but streamed as Server-Sent Events:
+    'status' events for each pipeline stage, 'token' events with report
+    text as it's generated, a final 'done' event with the complete
+    structured result, or an 'error' event if something fails partway.
+    """
+    session = _get_session(session_id)
+    vector_store: DocumentVectorStore = session["vector_store"]
+
+    if not os.getenv("GROQ_API_KEY"):
+        raise HTTPException(status_code=500, detail="Server is missing GROQ_API_KEY.")
+
+    def event_generator():
+        try:
+            yield _sse("status", "Planning sub-questions...")
+            doc_names = list(session["indexed_files"].values()) or None
+            subquestions = plan_subquestions(req.topic, uploaded_doc_names=doc_names)
+
+            yield _sse("status", "Searching the web and your documents...")
+
+            def combined_search(q: str):
+                web_results, error = search_web(q, max_results=req.results_per_subquestion)
+                doc_results = vector_store.query(q, top_k=3) if vector_store.has_documents() else []
+                return doc_results + web_results, error
+
+            evidence_bundles = collect_all_evidence(subquestions, search_fn=combined_search)
+            total_sources = sum(len(b["sources"]) for b in evidence_bundles)
+
+            if total_sources == 0:
+                errors = [b["error"] for b in evidence_bundles if b.get("error")]
+                detail = "No evidence found — no web results and no uploaded documents matched."
+                if errors:
+                    detail += f" Error: {errors[0]}"
+                yield _sse("error", detail)
+                return
+
+            yield _sse("status", "Writing the report...")
+            prep = prepare_synthesis(req.topic, evidence_bundles)
+
+            accumulated = ""
+            for delta in synthesize_stream(prep["prompt"], prep["system"]):
+                accumulated += delta
+                yield _sse("token", delta)
+
+            report_md = normalize_citation_brackets(accumulated)
+
+            if req.run_fact_check:
+                yield _sse("status", "Fact-checking...")
+                fact_check_notes = fact_check_report(report_md, prep["evidence_blob_for_factcheck"])
+                report_md = report_md + f"\n\n{fact_check_notes}"
+
+            final_report = append_sources_section(report_md, prep["sources"])
+            cited_count = sum(1 for s in prep["sources"] if f"[{s['id']}]" in final_report)
+
+            yield _sse("done", {
+                "report_markdown": final_report,
+                "subquestions": subquestions,
+                "source_count": cited_count,
+            })
+        except Exception as e:
+            yield _sse("error", f"{type(e).__name__}: {e}")
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

@@ -4,10 +4,18 @@ Synthesizer — the core report-writing step.
 Takes evidence bundles from every sub-question and produces a single,
 well-structured markdown report with inline citations, then appends
 a deduplicated source list.
+
+prepare_synthesis() builds the prompt and does all the citation-ID
+bookkeeping once; both the non-streaming path (build_report) and the
+streaming path (synthesize_stream, used by the backend's SSE endpoint)
+call it, so there is exactly one place that can get citation numbering
+wrong instead of two copies drifting apart.
 """
 
-from utils.llm_client import chat
 import re
+from collections.abc import Iterator
+
+from utils.llm_client import chat, chat_stream
 
 SYNTH_SYSTEM_PROMPT = """You are a senior research analyst writing a report.
 
@@ -29,6 +37,9 @@ Rules:
 - Do not include a "Sources" section yourself — that is appended separately.
 """
 
+SYNTH_TEMPERATURE = 0.3
+SYNTH_MAX_TOKENS = 4096
+
 
 def format_source_index(sources: list[dict]) -> str:
     """Shared helper: the same 'Sn = title' index format used both when
@@ -38,14 +49,24 @@ def format_source_index(sources: list[dict]) -> str:
     return "\n".join(f"{s['id']} = {s['title']}" for s in sources)
 
 
-def build_report(topic: str, evidence_bundles: list[dict]) -> dict:
+def normalize_citation_brackets(text: str) -> str:
+    """Defensive normalization: models occasionally emit full-width or
+    other bracket variants around citation IDs instead of the ASCII
+    [S1] style asked for in the prompt. Normalize them so downstream
+    citation detection (append_sources_section) works regardless."""
+    return re.sub(r"[\u3010\u2018\u2039]\s*(S\d+)\s*[\u3011\u2019\u203a]", r"[\1]", text)
+
+
+def prepare_synthesis(topic: str, evidence_bundles: list[dict]) -> dict:
     """
-    Generate the final report.
+    Build the synthesis prompt and do all citation-ID bookkeeping.
 
     Returns:
         {
-            "report_markdown": str,
-            "sources": list[dict]  # deduplicated, renumbered globally
+            "prompt": str,
+            "system": str,
+            "sources": list[dict],       # deduplicated, globally renumbered
+            "evidence_blob_for_factcheck": str,
         }
     """
     # Merge evidence text from all sub-questions, with globally unique IDs.
@@ -117,28 +138,52 @@ source IDs inline):
 
 Write the full report now."""
 
-    report_md = chat(
-        prompt=prompt,
-        system=SYNTH_SYSTEM_PROMPT,
-        temperature=0.3,
-        max_tokens=4096,
-    )
+    return {
+        "prompt": prompt,
+        "system": SYNTH_SYSTEM_PROMPT,
+        "sources": all_sources,
+        "evidence_blob_for_factcheck": f"Source index:\n{source_index}\n\n{evidence_blob}",
+    }
 
-    # Defensive normalization: models occasionally emit full-width or
-    # other bracket variants around citation IDs instead of the ASCII
-    # [S1] style asked for in the prompt. Normalize them so downstream
-    # citation detection (append_sources_section) works regardless.
-    report_md = re.sub(r"[\u3010\u2018\u2039]\s*(S\d+)\s*[\u3011\u2019\u203a]", r"[\1]", report_md)
+
+def build_report(topic: str, evidence_bundles: list[dict]) -> dict:
+    """
+    Generate the final report in one shot (non-streaming).
+
+    Returns:
+        {
+            "report_markdown": str,
+            "sources": list[dict],
+            "evidence_blob": str,  # pass to fact_check_report
+        }
+    """
+    prep = prepare_synthesis(topic, evidence_bundles)
+
+    report_md = chat(
+        prompt=prep["prompt"],
+        system=prep["system"],
+        temperature=SYNTH_TEMPERATURE,
+        max_tokens=SYNTH_MAX_TOKENS,
+    )
+    report_md = normalize_citation_brackets(report_md)
 
     return {
         "report_markdown": report_md,
-        "sources": all_sources,
-        # Globally-retagged evidence text + the same source index shown
-        # to the synthesizer — pass this to fact_check_report so it
-        # checks citations against the SAME id numbering the report
-        # actually used, not the original per-subquestion local ids.
-        "evidence_blob": f"Source index:\n{source_index}\n\n{evidence_blob}",
+        "sources": prep["sources"],
+        "evidence_blob": prep["evidence_blob_for_factcheck"],
     }
+
+
+def synthesize_stream(prompt: str, system: str) -> Iterator[str]:
+    """Thin wrapper so callers (the backend's SSE endpoint) don't need
+    to know the model's temperature/token-limit settings — those stay
+    defined once, here."""
+    yield from chat_stream(
+        prompt=prompt,
+        system=system,
+        temperature=SYNTH_TEMPERATURE,
+        max_tokens=SYNTH_MAX_TOKENS,
+    )
 
 
 def append_sources_section(report_markdown: str, sources: list[dict]) -> str:
