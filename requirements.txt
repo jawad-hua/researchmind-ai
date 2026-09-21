@@ -7,7 +7,7 @@ fpdf2==2.7.9
 markdown2==2.5.0
 chromadb>=1.0.0
 pypdf>=5.0.0
-fastapi>=0.115.0
+fastapi[standard]
 uvicorn[standard]>=0.30.0
 python-multipart>=0.0.9
 requests>=2.32.0
