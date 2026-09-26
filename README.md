@@ -18,6 +18,15 @@ ResearchMind AI autonomously plans research, searches the web, analyzes uploaded
 
 </div>
 
+## Application Preview
+
+### Research Workflow
+
+![ResearchMind AI Overview](assets/screenshots/researchmind-overview.png)
+
+### Sources & PDF Export
+
+![ResearchMind AI Sources and PDF Export](assets/screenshots/researchmind-sources-pdf.png)
 
 ## Overview
 
