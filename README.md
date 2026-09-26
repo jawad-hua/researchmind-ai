@@ -1,121 +1,662 @@
+<div align="center">
+
 # ResearchMind AI
 
-An AI research agent that takes a topic (or question) and autonomously
-plans, searches the web, and writes a structured, cited report — no
-manual research required. Upload PDFs and it researches from them
-alongside the live web, in the same cited report.
+### Agentic AI Research Assistant for Web + Document Intelligence
 
-## Architecture
+ResearchMind AI autonomously plans research, searches the web, analyzes uploaded PDFs, verifies information, and produces structured reports with inline citations.
+
+[Live Demo](https://researchmind-aibyjawad.streamlit.app/) · [Report an Issue](https://github.com/jawad-hua/researchmind-ai/issues)
+
+<br>
+
+![Python](https://img.shields.io/badge/Python-3.11+-blue?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?logo=fastapi&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-Frontend-FF4B4B?logo=streamlit&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)
+![Tests](https://github.com/jawad-hua/researchmind-ai/actions/workflows/tests.yml/badge.svg)
+
+</div>
+
+
+## Overview
+
+ResearchMind AI is an agentic research system designed to automate multi-step research workflows.
+
+Instead of sending a single prompt to an LLM, the system breaks a research request into smaller tasks, searches multiple sources, retrieves relevant information from uploaded documents, synthesizes findings, performs a fact-checking pass, and produces a cited final report.
+
+It combines:
+
+- Web research
+- PDF/document intelligence
+- Retrieval-Augmented Generation (RAG)
+- Agentic planning
+- Fact checking
+- Citation generation
+- Streaming responses
+- PDF report export
+
+The frontend and backend are separated, allowing the research engine to be reused by other clients such as mobile apps, command-line tools, or custom dashboards.
+
+---
+
+## Live Demo
+
+Try the application here:
+
+**[Open ResearchMind AI](https://researchmind-aibyjawad.streamlit.app/)**
+
+> The hosted frontend communicates with the ResearchMind AI backend to execute the research pipeline.
+
+---
+
+## How It Works
 
 ```
-Streamlit Frontend (UI)  --HTTP-->  FastAPI Backend (API)
-                                            |
-                                    Planner -> Web Search + Document
-                                    Retrieval (ChromaDB) -> Synthesizer
-                                    -> Fact-Checker -> Report
-                                            |
-                                    Groq (LLM) + Tavily (Search)
+
+User Research Request
+        |
+        v
++-----------------------+
+|   Streamlit Frontend  |
++-----------------------+
+        |
+        | HTTP / SSE
+        v
++-----------------------+
+|    FastAPI Backend    |
++-----------------------+
+        |
+        v
++-----------------------+
+|        Planner        |
+| Breaks query into     |
+| research tasks        |
++-----------------------+
+        |
+        +--------------------+
+        |                    |
+        v                    v
++----------------+   +----------------------+
+|   Web Search   |   | Document Retrieval   |
+|    Tavily      |   | ChromaDB + PDF Data  |
++----------------+   +----------------------+
+        |                    |
+        +---------+----------+
+                  |
+                  v
+        +-------------------+
+        |    Synthesizer    |
+        | Groq-powered LLM  |
+        +-------------------+
+                  |
+                  v
+        +-------------------+
+        |   Fact Checker    |
+        +-------------------+
+                  |
+                  v
+        +-------------------+
+        | Cited Research    |
+        | Report + PDF      |
+        +-------------------+
+---
+```
+## Overview
+
+ResearchMind AI is an agentic research system designed to automate multi-step research workflows.
+
+Instead of sending a single prompt to an LLM, the system breaks a research request into smaller tasks, searches multiple sources, retrieves relevant information from uploaded documents, synthesizes findings, performs a fact-checking pass, and produces a cited final report.
+
+It combines:
+
+- Web research
+- PDF/document intelligence
+- Retrieval-Augmented Generation (RAG)
+- Agentic planning
+- Fact checking
+- Citation generation
+- Streaming responses
+- PDF report export
+
+The frontend and backend are separated, allowing the research engine to be reused by other clients such as mobile apps, command-line tools, or custom dashboards.
+
+---
+
+## Live Demo
+
+Try the application here:
+
+**[Open ResearchMind AI](https://researchmind-aibyjawad.streamlit.app/)**
+
+> The hosted frontend communicates with the ResearchMind AI backend to execute the research pipeline.
+
+---
+
+## How It Works
+
+```text
+User Research Request
+        |
+        v
++-----------------------+
+|   Streamlit Frontend  |
++-----------------------+
+        |
+        | HTTP / SSE
+        v
++-----------------------+
+|    FastAPI Backend    |
++-----------------------+
+        |
+        v
++-----------------------+
+|        Planner        |
+| Breaks query into     |
+| research tasks        |
++-----------------------+
+        |
+        +--------------------+
+        |                    |
+        v                    v
++----------------+   +----------------------+
+|   Web Search   |   | Document Retrieval   |
+|    Tavily      |   | ChromaDB + PDF Data  |
++----------------+   +----------------------+
+        |                    |
+        +---------+----------+
+                  |
+                  v
+        +-------------------+
+        |    Synthesizer    |
+        | Groq-powered LLM  |
+        +-------------------+
+                  |
+                  v
+        +-------------------+
+        |   Fact Checker    |
+        +-------------------+
+                  |
+                  v
+        +-------------------+
+        | Cited Research    |
+        | Report + PDF      |
+        +-------------------+
+
 ```
 
-The frontend is a pure UI layer with no research logic of its own —
-every step of the pipeline runs in the backend API. This means the
-backend could serve a mobile app, a CLI, or another frontend without
-any changes to the agent code.
+---
 
-## Features
+## Core Features
 
-- Multi-step research agent (query decomposition, not a single search call)
-- Retrieval-augmented research: upload PDFs and the agent researches from
-  them alongside the live web, in the same cited report
-- Automatic source citation, deduplicated across sub-questions and documents
-- Self fact-checking pass, including citation-accuracy checks
-- Streaming responses: the report renders token-by-token as it's generated
-- One-click PDF export with full Unicode support and rendered tables
-- Minimal, chat-style Streamlit interface, adapts to system light/dark theme
-- FastAPI backend with a documented REST API (`/docs` for interactive Swagger UI)
-- Dockerized: backend and frontend run as separate containers via Docker Compose
-- Automated test suite (pytest) covering the agent pipeline, vector store,
-  and every backend endpoint, run automatically in CI on every push (GitHub Actions)
+### Agentic Research
 
-## Roadmap
+ResearchMind AI decomposes complex questions into smaller research tasks instead of relying on a single search request.
 
-- Persistent (disk-backed) vector store, smarter chunking
-- Conversation memory across research sessions
-- Structured logging and centralized config
+### Web Research
+
+Uses Tavily Search API to retrieve relevant information from the live web.
+
+### Document Research
+
+Users can upload PDF documents and include their contents as research sources.
+
+### Retrieval-Augmented Generation
+
+Uploaded documents are processed and indexed using ChromaDB so relevant information can be retrieved during research.
+
+### Source Citations
+
+Research results contain inline citations and a structured source list.
+
+### Fact-Checking Layer
+
+A dedicated fact-checking stage reviews generated claims and citation consistency before the final report is returned.
+
+### Streaming Responses
+
+Research reports can be streamed from the FastAPI backend using Server-Sent Events.
+
+### PDF Export
+
+Completed research reports can be exported as formatted PDF documents.
+
+### REST API
+
+The research engine is exposed through a documented FastAPI REST API.
+
+### Automated Testing
+
+The project contains automated tests for:
+
+- Agent pipeline
+- Backend endpoints
+- Document processing
+- PDF export
+- Retrieval logic
+- Research workflows
+
+Tests run automatically through GitHub Actions.
+
+### Docker Support
+
+Backend and frontend can run as separate containers using Docker Compose.
+
+---
 
 ## Tech Stack
 
-Python, FastAPI, Groq (LLM inference), Tavily Search API, ChromaDB
-(vector store), Streamlit, pypdf, fpdf2, Docker, pytest, GitHub Actions
+| Category | Technologies |
+|---|---|
+| Language | Python |
+| Backend | FastAPI, Uvicorn |
+| Frontend | Streamlit |
+| LLM | Groq |
+| Web Search | Tavily Search API |
+| Vector Database | ChromaDB |
+| Document Processing | PyPDF / PDF processing utilities |
+| Architecture | Agentic AI, RAG |
+| API | REST, Server-Sent Events |
+| Testing | Pytest |
+| Deployment | Docker, Docker Compose |
+| CI | GitHub Actions |
+| Report Export | PDF generation |
 
-## Running locally (without Docker)
+---
 
-Needs two terminals — one for the backend, one for the frontend.
+## Project Structure
 
-```bash
-git clone <your-repo-url>
-cd researchmind-ai
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env      # then fill in your API keys
+```text
+researchmind-ai/
+│
+├── agent/
+│   ├── document_loader.py
+│   ├── extractor.py
+│   ├── fact_checker.py
+│   ├── planner.py
+│   ├── search.py
+│   ├── synthesizer.py
+│   └── vector_store.py
+│
+├── backend/
+│   ├── __init__.py
+│   └── main.py
+│
+├── utils/
+│   ├── llm_client.py
+│   └── pdf_export.py
+│
+├── tests/
+│   ├── conftest.py
+│   ├── test_backend_api.py
+│   ├── test_document_loader.py
+│   ├── test_extractor.py
+│   └── test_pdf_export.py
+│
+├── .github/
+│   └── workflows/
+│
+├── .devcontainer/
+├── assets/
+├── app.py
+├── docker-compose.yml
+├── Dockerfile.backend
+├── Dockerfile.frontend
+├── requirements.txt
+├── requirements-backend.txt
+├── requirements-frontend.txt
+├── requirements-dev.txt
+├── pyproject.toml
+├── pytest.ini
+└── README.md
 ```
 
-Terminal 1 — backend:
+---
+
+## Getting Started
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/jawad-hua/researchmind-ai.git
+cd researchmind-ai
+```
+
+### 2. Create a virtual environment
+
+#### Windows
+
+```bash
+python -m venv venv
+venv\Scripts\activate
+```
+
+#### Linux / macOS
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+### 3. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+For development and testing:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+---
+
+## Environment Variables
+
+Copy the example environment file:
+
+```bash
+cp .env.example .env
+```
+
+On Windows:
+
+```bash
+copy .env.example .env
+```
+
+Add your API keys:
+
+```env
+GROQ_API_KEY=your_groq_api_key
+TAVILY_API_KEY=your_tavily_api_key
+```
+
+API keys can be obtained from:
+
+- Groq Console
+- Tavily
+
+Never commit your real `.env` file or API keys to GitHub.
+
+---
+
+## Run Locally
+
+ResearchMind AI uses separate backend and frontend services.
+
+### Terminal 1 — Backend
+
 ```bash
 uvicorn backend.main:app --reload --port 8000
 ```
 
-Terminal 2 — frontend:
+Backend:
+
+```text
+http://localhost:8000
+```
+
+Interactive API documentation:
+
+```text
+http://localhost:8000/docs
+```
+
+### Terminal 2 — Frontend
+
 ```bash
 streamlit run app.py
 ```
 
-Get free API keys:
-- Groq: https://console.groq.com
-- Tavily: https://tavily.com
+Frontend:
 
-## Running with Docker
+```text
+http://localhost:8501
+```
+
+---
+
+## Run With Docker
+
+Create your `.env` file first and add the required API keys.
+
+Then run:
 
 ```bash
-cp .env.example .env      # fill in GROQ_API_KEY and TAVILY_API_KEY
 docker compose up --build
 ```
 
-- Frontend: http://localhost:8501
-- Backend API docs (Swagger UI): http://localhost:8000/docs
+This starts the frontend and backend as separate services.
+
+To stop the containers:
+
+```bash
+docker compose down
+```
+
+---
 
 ## API Overview
 
-- `POST /sessions` — start a research session, returns a `session_id`
-- `POST /sessions/{id}/documents` — upload PDF(s) to research alongside the web
-- `GET /sessions/{id}/documents` — list documents indexed in this session
-- `DELETE /sessions/{id}/documents/{source_key}` — remove an indexed document
-- `POST /sessions/{id}/research` — run the full pipeline, returns the cited report
-- `POST /sessions/{id}/research/stream` — same pipeline, streamed as Server-Sent Events
-  (`status`, `token`, `done`, `error`)
-- `GET /health` — service + API key status
+### Create Research Session
 
-Full interactive documentation is auto-generated at `/docs` when the backend is running.
+```http
+POST /sessions
+```
 
-## Running the tests
+Creates a new research session and returns a unique session ID.
+
+### Upload Documents
+
+```http
+POST /sessions/{session_id}/documents
+```
+
+Uploads and indexes PDF documents for the current research session.
+
+### List Documents
+
+```http
+GET /sessions/{session_id}/documents
+```
+
+Returns documents currently indexed in the session.
+
+### Delete Document
+
+```http
+DELETE /sessions/{session_id}/documents/{source_key}
+```
+
+Removes an indexed document.
+
+### Run Research
+
+```http
+POST /sessions/{session_id}/research
+```
+
+Runs the complete research pipeline and returns a cited report.
+
+### Stream Research
+
+```http
+POST /sessions/{session_id}/research/stream
+```
+
+Streams research progress and generated report content using Server-Sent Events.
+
+Possible event types include:
+
+```text
+status
+token
+done
+error
+```
+
+### Health Check
+
+```http
+GET /health
+```
+
+Returns service health and configuration status.
+
+---
+
+## Testing
+
+Run the complete test suite:
 
 ```bash
-pip install -r requirements.txt -r requirements-dev.txt
 pytest -v
 ```
 
-The suite mocks every LLM call, web search, and the embedding model, so it
-runs fully offline in a couple of seconds. It also runs automatically on
-every push via GitHub Actions (see `.github/workflows/tests.yml`).
+The test environment mocks external services such as:
 
-## Example
+- LLM calls
+- Web search
+- Embedding operations
 
-**Input:** "Explain the latest trends in Generative AI and make a 5-page report."
+This allows most tests to run without consuming external API credits.
 
-**Output:** A structured markdown report with sections, inline citations
-`[S1]`, `[S2]`, a sources list, a fact-check verdict, and a downloadable PDF.
+Tests are also executed automatically through GitHub Actions.
+
+---
+
+## Example Research Workflow
+
+### Input
+
+```text
+Explain the latest developments in Generative AI and create a structured report.
+```
+
+### ResearchMind AI Pipeline
+
+```text
+Question
+   ↓
+Research Planning
+   ↓
+Sub-question Generation
+   ↓
+Web Search + Document Retrieval
+   ↓
+Evidence Collection
+   ↓
+Report Synthesis
+   ↓
+Citation Processing
+   ↓
+Fact Checking
+   ↓
+Final Structured Report
+```
+
+### Output
+
+The generated report can contain:
+
+- Structured sections
+- Research findings
+- Inline source citations
+- Source references
+- Fact-check results
+- PDF export
+
+---
+
+## Design Principles
+
+ResearchMind AI is built around several engineering principles:
+
+**Separation of Concerns**  
+The frontend handles presentation while research logic remains inside the backend.
+
+**Modular Agent Architecture**  
+Planning, searching, retrieval, synthesis, and verification are implemented as separate components.
+
+**API-First Design**  
+The research engine can be consumed by interfaces other than Streamlit.
+
+**Testability**  
+External AI and search services can be mocked during automated tests.
+
+**Deployment Portability**  
+Docker support allows the system to run consistently across development and deployment environments.
+
+---
+
+## Roadmap
+
+Future improvements include:
+
+- Persistent vector storage
+- Improved semantic chunking
+- Research session history
+- Conversation memory
+- Multi-document knowledge bases
+- Improved source ranking
+- Advanced citation verification
+- Structured logging
+- Centralized configuration
+- Background job processing
+- Improved deployment scalability
+
+---
+
+## Security
+
+Sensitive API credentials are loaded through environment variables.
+
+The repository includes an `.env.example` file for configuration guidance.
+
+Do not commit:
+
+```text
+.env
+API keys
+access tokens
+private credentials
+```
+
+---
+
+## Author
+
+**Muhammad Jawad**
+
+AI/ML Engineer focused on:
+
+- Agentic AI
+- LLM applications
+- Retrieval-Augmented Generation
+- Python
+- FastAPI
+- Machine Learning
+- AI automation
+
+[LinkedIn](https://www.linkedin.com/in/muhammad-jawad-ai/) ·
+[Kaggle](https://www.kaggle.com/mjawadjawad) ·
+[GitHub](https://github.com/jawad-hua)
+
+---
 
 ## License
 
-MIT
+This project is licensed under the **MIT License**.
+
+---
+
+<div align="center">
+
+### ResearchMind AI
+
+Building practical agentic AI systems for real-world research workflows.
+
+</div>
+
